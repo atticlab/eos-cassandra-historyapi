@@ -1,8 +1,8 @@
 package cassandra_storage
 
 import (
-	"EOS-Cassandra-middleware/storage"
-	"EOS-Cassandra-middleware/utility"
+	"../../storage"
+	"../../utility"
 	"encoding/json"
 	"errors"
 	"fmt"

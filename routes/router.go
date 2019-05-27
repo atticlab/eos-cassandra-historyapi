@@ -1,7 +1,7 @@
 package routes
 
 import (
-	"EOS-Cassandra-middleware/storage"
+	"../storage"
 	"encoding/json"
 	"net/http"
 )

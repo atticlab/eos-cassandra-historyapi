@@ -1,8 +1,8 @@
 package main
 
 import (
-	"EOS-Cassandra-middleware/routes"
-	"EOS-Cassandra-middleware/storage/cassandra_storage"
+	"./routes"
+	"./storage/cassandra_storage"
 	"encoding/json"
 	"log"
 	"net/http"

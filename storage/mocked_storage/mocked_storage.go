@@ -1,7 +1,7 @@
 package mocked_storage
 
 import (
-	"EOS-Cassandra-middleware/storage"
+	"../../storage"
 	"errors"
 )
 
