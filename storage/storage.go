@@ -1,6 +1,10 @@
 package storage
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"eos-cassandra-historyapi/error_result"
+	"time"
+)
 
 //get_actions
 type GetActionArgs struct {
@@ -51,11 +55,12 @@ func (args *GetActionArgs) Normalize() (int64, int64, bool) {
 
 type Action struct {
 	GlobalActionSeq      interface{} `json:"global_action_seq"`
-	AccountActionSeq          uint64 `json:"account_action_seq"`
+	AccountActionSeq         *uint64 `json:"account_action_seq,omitempty"`
 	BlockNum             interface{} `json:"block_num"`
 	BlockTime            interface{} `json:"block_time"`
 	ActionTrace      json.RawMessage `json:"action_trace"`
 }
+
 type GetActionsResult struct {
 	Actions               []Action `json:"actions"`
 	LastIrreversibleBlock   uint64 `json:"last_irreversible_block"`
@@ -93,10 +98,55 @@ type GetControlledAccountsResult struct {
 	ControlledAccounts []string `json:"controlled_accounts"`
 }
 
+//find_actions
+type FindActionsArgs struct {
+	AccountName      string `json:"account_name"`
+	FromDate    interface{} `json:"from_date"`
+	ToDate      interface{} `json:"to_date"`
+	LastDays        *uint32 `json:"last_days"`
+	Data             string `json:"data"`
+}
+
+func (args *FindActionsArgs) GetFromTime() *time.Time {
+	var t *time.Time
+	if s, ok := args.FromDate.(string); ok {
+		tmp, err := time.Parse("2006-01-02T15:04:05", s)
+		if err != nil {
+			return t
+		}
+		t = &tmp
+	} else if n, ok := args.FromDate.(float64); ok {
+		unixT := time.Unix(int64(n), 0)
+		t = &unixT
+	}
+	return t
+}
+
+func (args *FindActionsArgs) GetToTime() *time.Time {
+	var t *time.Time
+	if s, ok := args.ToDate.(string); ok {
+		tmp, err := time.Parse("2006-01-02T15:04:05", s)
+		if err != nil {
+			return t
+		}
+		t = &tmp
+	} else if n, ok := args.ToDate.(float64); ok {
+		unixT := time.Unix(int64(n), 0)
+		t = &unixT
+	}
+	return t
+}
+
+type FindActionsResult struct {
+	Actions               []Action `json:"actions"`
+	LastIrreversibleBlock   uint64 `json:"last_irreversible_block"`
+}
+
 
 type IHistoryStorage interface {
-	GetActions(GetActionArgs)                        (GetActionsResult,            error)
-	GetTransaction(GetTransactionArgs)               (GetTransactionResult,        error)
-	GetKeyAccounts(GetKeyAccountsArgs)               (GetKeyAccountsResult,        error)
-	GetControlledAccounts(GetControlledAccountsArgs) (GetControlledAccountsResult, error)
+	GetActions(GetActionArgs)                        (GetActionsResult,            *error_result.ErrorResult)
+	GetTransaction(GetTransactionArgs)               (GetTransactionResult,        *error_result.ErrorResult)
+	GetKeyAccounts(GetKeyAccountsArgs)               (GetKeyAccountsResult,        *error_result.ErrorResult)
+	GetControlledAccounts(GetControlledAccountsArgs) (GetControlledAccountsResult, *error_result.ErrorResult)
+	FindActions(FindActionsArgs)                     (FindActionsResult,           *error_result.ErrorResult)
 }

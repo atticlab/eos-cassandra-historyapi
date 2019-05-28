@@ -1,10 +1,10 @@
 package cassandra_storage
 
 import (
-	"../../storage"
-	"../../utility"
 	"encoding/json"
-	"errors"
+	"eos-cassandra-historyapi/error_result"
+	"eos-cassandra-historyapi/storage"
+	"eos-cassandra-historyapi/utility"
 	"fmt"
 	"github.com/gocql/gocql"
 	"log"
@@ -27,6 +27,10 @@ const (
 	TableLib                       = "lib"
 	TableTransaction               = "transaction"
 	TableTransactionTrace          = "transaction_trace"
+
+	EosStartDate = "2018-06-09"
+
+	MaxResultTraces = 10000
 
 	TracesPerShard = 10000
 
@@ -77,7 +81,7 @@ func (cs *CassandraStorage) Close() {
 	cs.Session.Close()
 }
 
-func (cs *CassandraStorage) GetActions(args storage.GetActionArgs) (storage.GetActionsResult, error) {
+func (cs *CassandraStorage) GetActions(args storage.GetActionArgs) (storage.GetActionsResult, *error_result.ErrorResult) {
 	result := storage.GetActionsResult{ Actions: make([]storage.Action, 0) }
 
 	lib, err := cs.getLastIrreversibleBlock()
@@ -96,14 +100,17 @@ func (cs *CassandraStorage) GetActions(args storage.GetActionArgs) (storage.GetA
 		return result, nil
 	}
 	if order {
-		result.Actions, err = cs.getAccountHistory(args.AccountName, pos, count)
+		result.Actions, err = cs.getAccountHistory(args.AccountName, pos, count, TimestampRange{}, nil)
 	} else {
 		result.Actions, err = cs.getAccountHistoryReverse(args.AccountName, pos, count)
 	}
-	return result, err
+	if err != nil {
+		return result, &error_result.ErrorResult{ Code:500, Message:err.Error() }
+	}
+	return result, nil
 }
 
-func (cs *CassandraStorage) GetTransaction(args storage.GetTransactionArgs) (storage.GetTransactionResult, error) {
+func (cs *CassandraStorage) GetTransaction(args storage.GetTransactionArgs) (storage.GetTransactionResult, *error_result.ErrorResult) {
 	result := storage.GetTransactionResult{}
 	lib, err := cs.getLastIrreversibleBlock()
 	if err != nil {
@@ -112,16 +119,19 @@ func (cs *CassandraStorage) GetTransaction(args storage.GetTransactionArgs) (sto
 	result.LastIrreversibleBlock = lib
 
 	if args.ID == "" {
-		return result, errors.New("Invalid transaction ID: " + args.ID)
+		return result, &error_result.ErrorResult{ Code:500, Message:"Invalid transaction ID: " + args.ID }
 	}
 
 	transaction, err := cs.getTransaction(args.ID)
 	if err != nil {
-		return result, err
+		return result, &error_result.ErrorResult{Code:500, Message:err.Error()}
 	}
 	transactionTrace, err := cs.getTransactionTrace(args.ID)
 	if err != nil {
-		return result, err
+		return result, &error_result.ErrorResult{Code:500, Message:err.Error()}
+	}
+	if transaction == nil || transactionTrace == nil {
+		return result, &error_result.ErrorResult{Code:404, Message:"Not found"}
 	}
 	expandedTraces := make([]*ActionTraceDoc, 0)
 	for _, t := range transactionTrace.Doc.ActionTraces {
@@ -191,7 +201,7 @@ func (cs *CassandraStorage) GetTransaction(args storage.GetTransactionArgs) (sto
 	return result, nil
 }
 
-func (cs *CassandraStorage) GetKeyAccounts(args storage.GetKeyAccountsArgs) (storage.GetKeyAccountsResult, error) {
+func (cs *CassandraStorage) GetKeyAccounts(args storage.GetKeyAccountsArgs) (storage.GetKeyAccountsResult, *error_result.ErrorResult) {
 	result := storage.GetKeyAccountsResult{ AccountNames: make([]string, 0) }
 
 	if args.PublicKey == "" {
@@ -200,7 +210,7 @@ func (cs *CassandraStorage) GetKeyAccounts(args storage.GetKeyAccountsArgs) (sto
 
 	accounts, err := cs.getKeyAccounts(args.PublicKey)
 	if err != nil {
-		return result, err
+		return result, &error_result.ErrorResult{Code:500, Message:err.Error()}
 	}
 	accounts = utility.Unique(accounts)
 	sort.Strings(accounts)
@@ -208,7 +218,7 @@ func (cs *CassandraStorage) GetKeyAccounts(args storage.GetKeyAccountsArgs) (sto
 	return result, nil
 }
 
-func (cs *CassandraStorage) GetControlledAccounts(args storage.GetControlledAccountsArgs) (storage.GetControlledAccountsResult, error) {
+func (cs *CassandraStorage) GetControlledAccounts(args storage.GetControlledAccountsArgs) (storage.GetControlledAccountsResult, *error_result.ErrorResult) {
 	result := storage.GetControlledAccountsResult{ ControlledAccounts: make([]string, 0) }
 
 	if args.ControllingAccount == "" {
@@ -217,7 +227,7 @@ func (cs *CassandraStorage) GetControlledAccounts(args storage.GetControlledAcco
 
 	accounts, err := cs.getControlledAccounts(args.ControllingAccount)
 	if err != nil {
-		return result, err
+		return result, &error_result.ErrorResult{Code:500, Message:err.Error()}
 	}
 	accounts = utility.Unique(accounts)
 	sort.Strings(accounts)
@@ -225,12 +235,56 @@ func (cs *CassandraStorage) GetControlledAccounts(args storage.GetControlledAcco
 	return result, nil
 }
 
+func (cs *CassandraStorage) FindActions(args storage.FindActionsArgs) (storage.FindActionsResult, *error_result.ErrorResult) {
+	result := storage.FindActionsResult{ Actions: make([]storage.Action, 0) }
+
+	lib, err := cs.getLastIrreversibleBlock()
+	if err != nil {
+		log.Println(fmt.Sprintf("Error from GetActions(): %s. Continuing execution.", err.Error()))
+	}
+	result.LastIrreversibleBlock = lib
+
+	fromTime := args.GetFromTime()
+	toTime := args.GetToTime()
+	if fromTime == nil && args.LastDays != nil {
+		t := time.Now().AddDate(0, 0, -int(*args.LastDays))
+		fromTime = &t
+	}
+	var fromTimestamp *Timestamp
+	var toTimestamp *Timestamp
+	if fromTime != nil {
+		fromTimestamp = &Timestamp{Time: *fromTime}
+	}
+	if toTime != nil {
+		toTimestamp = &Timestamp{Time: *toTime}
+	}
+	r := NewTimestampRange(fromTimestamp, false, toTimestamp, false)
+
+	var dataFilter *DataFilter
+	if args.Data != "" {
+		dataFilter = NewDataFilter(args.Data)
+	}
+
+	if args.AccountName != "" {
+		result.Actions, err = cs.getAccountHistory(args.AccountName, 0, 10000, r, dataFilter)
+		if err != nil {
+			return result, &error_result.ErrorResult{Code:500, Message:err.Error()}
+		}
+	} else {
+		result.Actions, err = cs.getActionTracesByDate(r, dataFilter)
+		if err != nil {
+			return result, &error_result.ErrorResult{Code:500, Message:err.Error()}
+		}
+	}
+	return result, nil
+}
+
 
 //getAccountHistory is a handler for get_actions request with pos != -1
-func (cs *CassandraStorage) getAccountHistory(account string, pos int64, count int64) ([]storage.Action, error) {
+func (cs *CassandraStorage) getAccountHistory(account string, pos int64, count int64, timeRange Range, dataFilter *DataFilter) ([]storage.Action, error) {
 	result := make([]storage.Action, 0)
 	order := true
-	shardRecords, err := cs.getAccountShards(account, TimestampRange{}, order, countShards(pos, count, order))
+	shardRecords, err := cs.getAccountShards(account, timeRange, order, countShards(pos, count, order))
 	if err != nil {
 		return result, err
 	}
@@ -239,7 +293,7 @@ func (cs *CassandraStorage) getAccountHistory(account string, pos int64, count i
 	for i, shard := range shardRecords {
 		shards[i] = shard.ShardId
 	}
-	accountActionTraces, err := cs.getAccountActionTraces(account, shards, TimestampRange{}, order, pos, count)
+	accountActionTraces, err := cs.getAccountActionTraces(account, shards, timeRange, order, pos, count)
 	if err != nil {
 		return result, err
 	}
@@ -282,16 +336,18 @@ func (cs *CassandraStorage) getAccountHistory(account string, pos int64, count i
 			continue
 		}
 
-		bytes, err := json.Marshal(doc)
-		if err != nil {
-			log.Println(fmt.Sprintf("Failed to encode trace %d. Error: %s", aat.GlobalSeq, err.Error()))
-			continue
+		if dataFilter == nil || dataFilter.IsOk(*doc) {
+			bytes, err := json.Marshal(doc)
+			if err != nil {
+				log.Println(fmt.Sprintf("Failed to encode trace %d. Error: %s", aat.GlobalSeq, err.Error()))
+				continue
+			}
+			accountActionSeq := uint64(pos) + uint64(i)
+			action := storage.Action{ GlobalActionSeq: doc.Receipt["global_sequence"], AccountActionSeq: &accountActionSeq,
+				BlockNum: doc.BlockNum, BlockTime: doc.BlockTime,
+				ActionTrace: bytes }
+			result = append(result, action)
 		}
-		accountActionSeq := uint64(pos) + uint64(i)
-		action := storage.Action{ GlobalActionSeq: doc.Receipt["global_sequence"], AccountActionSeq: accountActionSeq,
-			BlockNum: doc.BlockNum, BlockTime: doc.BlockTime,
-			ActionTrace: bytes }
-		result = append(result, action)
 	}
 	if len(result) != len(accountActionTraces) {
 		log.Println("Warning! Missing traces")
@@ -380,7 +436,7 @@ func (cs *CassandraStorage) getAccountHistoryReverse(account string, pos int64, 
 			continue
 		}
 		accountActionSeq := lastAccountSeq - uint64(i)
-		action := storage.Action{ GlobalActionSeq: doc.Receipt["global_sequence"], AccountActionSeq: accountActionSeq,
+		action := storage.Action{ GlobalActionSeq: doc.Receipt["global_sequence"], AccountActionSeq: &accountActionSeq,
 			BlockNum: doc.BlockNum, BlockTime: doc.BlockTime,
 			ActionTrace: bytes }
 		result = append(result, action)
@@ -477,34 +533,143 @@ func (cs *CassandraStorage) getActionTraces(globalSequences []uint64) ([]ActionT
 	if len(globalSequences) == 0 {
 		return records, nil
 	}
-	inClause := " global_seq IN ("
-	for _, gs := range globalSequences[:len(globalSequences)-1] {
-		inClause += strconv.FormatUint(gs, 10) + ", "
-	}
-	inClause += strconv.FormatUint(globalSequences[len(globalSequences)-1], 10) + ")"
-	query := fmt.Sprintf("SELECT * FROM %s WHERE %s", TableActionTrace, inClause)
-	fmt.Println("Query: ", query)
-	var r ActionTraceRecord
-	var doc string
-	iter := cs.Session.Query(query).Iter()
-	for iter.Scan(&r.GlobalSeq, &doc, &r.Parent) {
-		err := json.Unmarshal([]byte(doc), &r.Doc)
-		if err != nil {
-			log.Println(fmt.Sprintf("Error from getActionTraces. Failed to unmarshal action_trace %s: %s", doc, err.Error()))
-			continue
+	pos := 0
+	offset := 50
+	for pos < len(globalSequences) {
+		var chunk []uint64
+		if pos + offset > len(globalSequences) {
+			chunk = globalSequences[pos:]
+		} else {
+			chunk = globalSequences[pos:pos+offset]
 		}
-		records = append(records, r)
-		r = ActionTraceRecord{}
-	}
-	if err := iter.Close(); err != nil {
-		err = fmt.Errorf(TemplateErrorCassandraQueryFailed, err.Error(), query)
-		log.Println("Error from getActionTraces: " + err.Error())
-		return records, err
+		pos += offset
+		if len(chunk) == 0 {
+			break
+		}
+		inClause := " global_seq IN ("
+		for _, gs := range chunk[:len(chunk)-1] {
+			inClause += strconv.FormatUint(gs, 10) + ", "
+		}
+		inClause += strconv.FormatUint(chunk[len(chunk)-1], 10) + ")"
+		query := fmt.Sprintf("SELECT * FROM %s WHERE %s", TableActionTrace, inClause)
+		fmt.Println("Query: ", query)
+		var r ActionTraceRecord
+		var doc string
+		iter := cs.Session.Query(query).Iter()
+		for iter.Scan(&r.GlobalSeq, &doc, &r.Parent) {
+			err := json.Unmarshal([]byte(doc), &r.Doc)
+			if err != nil {
+				log.Println(fmt.Sprintf("Error from getActionTraces. Failed to unmarshal action_trace %s: %s", doc, err.Error()))
+				continue
+			}
+			records = append(records, r)
+			r = ActionTraceRecord{}
+		}
+		if err := iter.Close(); err != nil {
+			err = fmt.Errorf(TemplateErrorCassandraQueryFailed, err.Error(), query)
+			log.Println("Error from getActionTraces: " + err.Error())
+			return records, err
+		}
 	}
 	if len(globalSequences) != len(records) {
-		log.Println("Warning! Not all traces found. Query: " + query) //TODO: log missing global_seq
+		log.Println("Warning! Not all traces found.") //TODO: log missing global_seq
 	}
 	return records, nil
+}
+
+func (cs *CassandraStorage) getActionTracesByDate(timeRange TimestampRange, dataFilter *DataFilter) ([]storage.Action, error) {
+	result := make([]storage.Action, 0)
+	processed := 0
+	startDate, _ := time.Parse("2006-01-02", EosStartDate)
+	endDate := time.Now()
+	if timeRange.Start != nil {
+		startDate := timeRange.Start.Time
+		if timeRange.StartStrict {
+			startDate = startDate.AddDate(0, 0, 1)
+		}
+	}
+	if timeRange.End != nil {
+		endDate := timeRange.End.Time
+		if timeRange.EndStrict {
+			endDate = endDate.AddDate(0, 0, -1)
+		}
+	}
+	for startDate.Before(endDate) {
+		date := startDate.Format("2006-01-02")
+		dateActionTraces, err := cs.getDateActionTraces(date, timeRange)
+		if err != nil {
+			return result, nil
+		}
+		remain := MaxResultTraces - processed
+		if remain <= 0 {
+			return result, nil
+		}
+		processed += len(dateActionTraces)
+		fmt.Println("Remain: ", remain)
+		if remain < len(dateActionTraces) {
+			dateActionTraces = dateActionTraces[:remain]
+		}
+		globalSequences := make([]uint64, 0)
+		lastGlobalSeq := uint64(0)
+		for _, dat := range dateActionTraces {
+			gs := dat.GlobalSeq
+			if dat.Parent != nil {
+				gs = *dat.Parent
+			}
+			if gs != lastGlobalSeq {
+				globalSequences = append(globalSequences, gs)
+				lastGlobalSeq = gs
+			}
+		}
+		actionTraces, err := cs.getActionTraces(globalSequences)
+		if err != nil {
+			return result, nil
+		}
+		sort.Slice(actionTraces, func(i, j int) bool { return actionTraces[i].GlobalSeq < actionTraces[j].GlobalSeq })
+		log.Println(fmt.Sprintf("Found %d traces", len(actionTraces)))
+		for _, dat := range dateActionTraces {
+			var doc *ActionTraceDoc
+			id := 0
+			if dat.Parent == nil {
+				for i, at := range actionTraces {
+					if dat.GlobalSeq == at.GlobalSeq {
+						id = i
+						doc = &at.Doc
+						break
+					}
+				}
+			} else {
+				for i, at := range actionTraces {
+					if inline := at.Doc.GetTrace(dat.GlobalSeq); inline != nil {
+						id = i
+						doc = inline
+						break
+					}
+				}
+			}
+			actionTraces = actionTraces[id:]
+			if doc == nil {
+				log.Println(fmt.Sprintf("Warning! Action trace %d not found", dat.GlobalSeq))
+				continue
+			}
+			if dataFilter == nil || dataFilter.IsOk(*doc) {
+				bytes, err := json.Marshal(doc)
+				if err != nil {
+					log.Println(fmt.Sprintf("Failed to encode trace %d. Error: %s", dat.GlobalSeq, err.Error()))
+					continue
+				}
+				action := storage.Action{ GlobalActionSeq: doc.Receipt["global_sequence"], AccountActionSeq: nil,
+					BlockNum: doc.BlockNum, BlockTime: doc.BlockTime,
+					ActionTrace: bytes }
+				result = append(result, action)
+				if len(result) >= MaxResultTraces {
+					return result, nil
+				}
+			}
+		}
+		startDate = startDate.AddDate(0, 0, 1)
+	}
+	return result, nil
 }
 
 func (cs *CassandraStorage) getBlock(id string) (*BlockRecord, error)  {
@@ -561,6 +726,28 @@ func (cs *CassandraStorage) getControlledAccounts(controllingAccount string) ([]
 	return accounts, nil
 }
 
+func (cs *CassandraStorage) getDateActionTraces(date string, blockTimeRange Range) ([]DateActionTraceRecord, error) {
+	records := make([]DateActionTraceRecord, 0)
+	rangeStr := ""
+	if !blockTimeRange.IsEmpty() {
+		rangeStr += "AND " + blockTimeRange.Format("block_time")
+	}
+	query := fmt.Sprintf("SELECT * FROM %s WHERE block_date='%s' %s LIMIT %d", TableDateActionTrace, date, rangeStr, MaxResultTraces)
+	fmt.Println("Query: ", query)
+	var r DateActionTraceRecord
+	iter := cs.Session.Query(query).Iter()
+	for iter.Scan(&r.BlockDate, &r.BlockTime.Time, &r.GlobalSeq, &r.Parent) {
+		records = append(records, r)
+		r = DateActionTraceRecord{}
+	}
+	if err := iter.Close(); err != nil {
+		err = fmt.Errorf(TemplateErrorCassandraQueryFailed, err.Error(), query)
+		log.Println("Error from getDateActionTraces: " + err.Error())
+		return records, err
+	}
+	return records, nil
+}
+
 func (cs *CassandraStorage) getKeyAccounts(key string) ([]string, error) {
 	query := fmt.Sprintf("SELECT name FROM %s WHERE key='%s'", TableAccountPublicKey, key)
 
@@ -596,6 +783,9 @@ func (cs *CassandraStorage) getTransaction(id string) (*TransactionRecord, error
 	var record TransactionRecord
 	var doc string
 	if err := cs.Session.Query(query).Scan(&record.ID, &doc); err != nil {
+		if err == gocql.ErrNotFound {
+			return nil, nil
+		}
 		err = fmt.Errorf(TemplateErrorCassandraQueryFailed, err.Error(), query)
 		log.Println("Error from getTransaction: " + err.Error())
 		return nil, err
@@ -616,6 +806,9 @@ func (cs *CassandraStorage) getTransactionTrace(id string) (*TransactionTraceRec
 	var record TransactionTraceRecord
 	var doc string
 	if err := cs.Session.Query(query).Scan(&record.ID, &record.BlockDate, &record.BlockNum, &doc); err != nil {
+		if err == gocql.ErrNotFound {
+			return nil, nil
+		}
 		err = fmt.Errorf(TemplateErrorCassandraQueryFailed, err.Error(), query)
 		log.Println("Error from getTransactionTrace: " + err.Error())
 		return nil, err

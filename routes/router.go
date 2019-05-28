@@ -1,23 +1,18 @@
 package routes
 
 import (
-	"../storage"
 	"encoding/json"
+	"eos-cassandra-historyapi/error_result"
+	"eos-cassandra-historyapi/storage"
 	"net/http"
 )
 
 const ApiPath string = "/v1/history/"
 
 
-type ErrorResult struct {
-	Code       int `json:"code"`
-	Message string `json:"message"`
-}
-
-
 func writeErrorResponse(writer http.ResponseWriter, status int, message string) {
 	writer.WriteHeader(status)
-	response := ErrorResult { Code: status, Message: message }
+	response := error_result.ErrorResult { Code: status, Message: message }
 	json.NewEncoder(writer).Encode(response)
 }
 
@@ -48,6 +43,7 @@ func NewRouter(hs storage.IHistoryStorage) *Router {
 	handler.HandleFunc(ApiPath + "get_transaction", onlyGetOrPost(router.handleGetTransaction()))
 	handler.HandleFunc(ApiPath + "get_key_accounts", onlyGetOrPost(router.handleGetKeyAccounts()))
 	handler.HandleFunc(ApiPath + "get_controlled_accounts", onlyGetOrPost(router.handleGetControlledAccounts()))
+	handler.HandleFunc(ApiPath + "find_actions", onlyGetOrPost(router.handleFindActions()))
 	router.ServeMux = *handler
 
 	return &router

@@ -1,9 +1,9 @@
 package main
 
 import (
-	"./routes"
-	"./storage/cassandra_storage"
 	"encoding/json"
+	"eos-cassandra-historyapi/routes"
+	"eos-cassandra-historyapi/storage/cassandra_storage"
 	"log"
 	"net/http"
 	"os"

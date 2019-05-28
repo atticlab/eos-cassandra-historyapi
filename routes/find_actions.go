@@ -10,7 +10,7 @@ import (
 )
 
 
-func (r *Router) handleGetControlledAccounts() http.HandlerFunc {
+func (r *Router) handleFindActions() http.HandlerFunc {
 	return func(writer http.ResponseWriter, request *http.Request) {
 		bytes, err := ioutil.ReadAll(request.Body)
 		defer request.Body.Close()
@@ -20,7 +20,7 @@ func (r *Router) handleGetControlledAccounts() http.HandlerFunc {
 			return
 		}
 
-		var args storage.GetControlledAccountsArgs
+		var args storage.FindActionsArgs
 		if len(bytes) > 0 {
 			if err = json.Unmarshal(bytes, &args); err != nil {
 				if _, ok := err.(*json.SyntaxError); ok {
@@ -31,10 +31,10 @@ func (r *Router) handleGetControlledAccounts() http.HandlerFunc {
 			}
 		}
 
-		response, errorResult := r.historyStorage.GetControlledAccounts(args)
+		response, errorResult := r.historyStorage.FindActions(args)
 		if errorResult != nil {
-			writeErrorResponse(writer, errorResult.Code, errorResult.Error())
-			log.Println("Got error from IHistoryStorage.GetControlledAccounts(). Error: " + errorResult.Error())
+			writeErrorResponse(writer, http.StatusInternalServerError, "Internal service error")
+			log.Println("Got error from IHistoryStorage.FindActions(). Error: " + errorResult.Error())
 			return
 		}
 		b, err := json.Marshal(response)
