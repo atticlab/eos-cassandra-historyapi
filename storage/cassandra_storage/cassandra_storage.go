@@ -288,7 +288,6 @@ func (cs *CassandraStorage) getAccountHistory(account string, pos int64, count i
 	if err != nil {
 		return result, err
 	}
-	log.Println("shards: ", shardRecords)
 	shards := make([]Timestamp, len(shardRecords))
 	for i, shard := range shardRecords {
 		shards[i] = shard.ShardId
@@ -297,7 +296,6 @@ func (cs *CassandraStorage) getAccountHistory(account string, pos int64, count i
 	if err != nil {
 		return result, err
 	}
-	log.Println("accountActionTraces: ", accountActionTraces)
 	if len(accountActionTraces) == 0 {
 		return result, nil
 	}
@@ -367,7 +365,6 @@ func (cs *CassandraStorage) getAccountHistoryReverse(account string, pos int64, 
 	if maxShards := countShards(pos, count, order); maxShards < int64(len(shardRecords)) {
 		shardRecords = shardRecords[:maxShards]
 	}
-	log.Println("shards: ", shardRecords)
 	shards := make([]Timestamp, len(shardRecords))
 	for i, shard := range shardRecords {
 		shards[i] = shard.ShardId
@@ -376,7 +373,6 @@ func (cs *CassandraStorage) getAccountHistoryReverse(account string, pos int64, 
 	if err != nil {
 		return result, err
 	}
-	log.Println("accountActionTraces: ", accountActionTraces)
 	if len(accountActionTraces) == 0 {
 		return result, nil
 	}
@@ -477,7 +473,6 @@ func (cs *CassandraStorage) getAccountActionTraces(account string, shards []Time
 		if withLimit {
 			query += fmt.Sprintf(" LIMIT %d", limit)
 		}
-		fmt.Println("Query: ", query)
 		var r AccountActionTraceRecord
 		iter := cs.Session.Query(query).Iter()
 		for (!withLimit || count > 0) && iter.Scan(&r.AccountName, &r.ShardId.Time, &r.BlockTime.Time, &r.GlobalSeq, &r.Parent) {
@@ -514,7 +509,6 @@ func (cs *CassandraStorage) getAccountShards(account string, shardRange Range, o
 	if limit > 0 {
 		query += fmt.Sprintf(" LIMIT %d", limit)
 	}
-	fmt.Println("Query: ", query)
 	var r AccountActionTraceShardRecord
 	iter := cs.Session.Query(query).Iter()
 	for iter.Scan(&r.ShardId.Time) {
@@ -552,7 +546,6 @@ func (cs *CassandraStorage) getActionTraces(globalSequences []uint64) ([]ActionT
 		}
 		inClause += strconv.FormatUint(chunk[len(chunk)-1], 10) + ")"
 		query := fmt.Sprintf("SELECT * FROM %s WHERE %s", TableActionTrace, inClause)
-		fmt.Println("Query: ", query)
 		var r ActionTraceRecord
 		var doc string
 		iter := cs.Session.Query(query).Iter()
@@ -733,7 +726,6 @@ func (cs *CassandraStorage) getDateActionTraces(date string, blockTimeRange Rang
 		rangeStr += "AND " + blockTimeRange.Format("block_time")
 	}
 	query := fmt.Sprintf("SELECT * FROM %s WHERE block_date='%s' %s LIMIT %d", TableDateActionTrace, date, rangeStr, MaxResultTraces)
-	fmt.Println("Query: ", query)
 	var r DateActionTraceRecord
 	iter := cs.Session.Query(query).Iter()
 	for iter.Scan(&r.BlockDate, &r.BlockTime.Time, &r.GlobalSeq, &r.Parent) {
@@ -836,7 +828,6 @@ func (cs *CassandraStorage) countAccountActionTraces(account string, shards []Ti
 		if top != 0 {
 			query += fmt.Sprintf(" AND global_seq <= %d ", top)
 		}
-		fmt.Println("Query: ", query)
 		if err := cs.Session.Query(query).Scan(&tmpCount); err != nil {
 			err = fmt.Errorf(TemplateErrorCassandraQueryFailed, err.Error(), query)
 			log.Println("Error from countAccountActionTraces: " + err.Error())
