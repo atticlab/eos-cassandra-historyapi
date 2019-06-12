@@ -1,4 +1,4 @@
-# EOS ESHistoryAPI - GO (beta)
+# EOS CassandraHistoryAPI - GO (alpha)
 EOS History API for Cassandra cluster on GO.
 
 During the benchmark testing, real query traffic was redirected to this application.
