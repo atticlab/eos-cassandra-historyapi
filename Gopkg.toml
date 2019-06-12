@@ -1,2 +1,2 @@
 
-required = ["github.com/gocql/gocql", "github.com/atticlab/eos-cassandra-historyapi"]
+required = ["github.com/gocql/gocql"]

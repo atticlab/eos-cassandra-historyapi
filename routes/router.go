@@ -2,8 +2,8 @@ package routes
 
 import (
 	"encoding/json"
-	"github.com/atticlab/eos-cassandra-historyapi/error_result"
-	"github.com/atticlab/eos-cassandra-historyapi/storage"
+	"eos-cassandra-historyapi/error_result"
+	"eos-cassandra-historyapi/storage"
 	"net/http"
 )
 

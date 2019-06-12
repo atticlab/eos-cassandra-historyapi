@@ -2,10 +2,10 @@ package cassandra_storage
 
 import (
 	"encoding/json"
+	"eos-cassandra-historyapi/error_result"
+	"eos-cassandra-historyapi/storage"
+	"eos-cassandra-historyapi/utility"
 	"fmt"
-	"github.com/atticlab/eos-cassandra-historyapi/error_result"
-	"github.com/atticlab/eos-cassandra-historyapi/storage"
-	"github.com/atticlab/eos-cassandra-historyapi/utility"
 	"github.com/gocql/gocql"
 	"log"
 	"sort"

@@ -1,8 +1,8 @@
 package mocked_storage
 
 import (
+	"eos-cassandra-historyapi/storage"
 	"errors"
-	"github.com/atticlab/eos-cassandra-historyapi/storage"
 )
 
 
