@@ -1,4 +1,9 @@
 .idea/
 **/bin/
 **/*.log
-
+vendor
+bin
+Gopkg.lock
+.env
+config.json
+dep
