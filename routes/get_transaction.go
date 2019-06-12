@@ -2,8 +2,8 @@ package routes
 
 import (
 	"encoding/json"
-	"eos-cassandra-historyapi/storage"
 	"fmt"
+	"github.com/atticlab/eos-cassandra-historyapi/storage"
 	"io/ioutil"
 	"log"
 	"net/http"

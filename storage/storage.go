@@ -2,7 +2,8 @@ package storage
 
 import (
 	"encoding/json"
-	"eos-cassandra-historyapi/error_result"
+	"github.com/atticlab/eos-cassandra-historyapi/error_result"
+	"github.com/atticlab/eos-cassandra-historyapi/storage"
 	"time"
 )
 
@@ -144,9 +145,9 @@ type FindActionsResult struct {
 
 
 type IHistoryStorage interface {
-	GetActions(GetActionArgs)                        (GetActionsResult,            *error_result.ErrorResult)
-	GetTransaction(GetTransactionArgs)               (GetTransactionResult,        *error_result.ErrorResult)
-	GetKeyAccounts(GetKeyAccountsArgs)               (GetKeyAccountsResult,        *error_result.ErrorResult)
-	GetControlledAccounts(GetControlledAccountsArgs) (GetControlledAccountsResult, *error_result.ErrorResult)
-	FindActions(FindActionsArgs)                     (FindActionsResult,           *error_result.ErrorResult)
+	GetActions(storage.GetActionArgs)                        (storage.GetActionsResult,            *error_result.ErrorResult)
+	GetTransaction(storage.GetTransactionArgs)               (storage.GetTransactionResult,        *error_result.ErrorResult)
+	GetKeyAccounts(storage.GetKeyAccountsArgs)               (storage.GetKeyAccountsResult,        *error_result.ErrorResult)
+	GetControlledAccounts(storage.GetControlledAccountsArgs) (storage.GetControlledAccountsResult, *error_result.ErrorResult)
+	FindActions(storage.FindActionsArgs)                     (storage.FindActionsResult,           *error_result.ErrorResult)
 }
