@@ -1,4 +1,4 @@
-# EOS CassandraHistoryAPI - GO (beta)
+# EOS CassandraHistoryAPI - GO (alpha)
 EOS History API for Cassandra cluster on GO.
 
 During the benchmark testing, real query traffic was redirected to this application.
@@ -13,10 +13,10 @@ $ cd eos-cassandra-historyapi/
 ```
 #### 
 #### Create config.json
-In the project directory create file config.json.
-"port" property is for the port on which the server will listen.
-"elastic_url" property is for the url of elasticsearch cluster.
-"seed_node" property is for the url of the node with chain_api_plugin enabled.
+In the project directory create file config.json. 
+"port" property is for the port on which the server will listen. 
+"cassandra_address" property is for the ip address of cassandra. 
+"cassandra_keyspace" property is for the name of the keyspase.
 For example:
 
     {
