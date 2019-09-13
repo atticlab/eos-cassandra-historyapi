@@ -7,6 +7,8 @@ import (
 	"eos-cassandra-historyapi/utility"
 	"fmt"
 	"github.com/gocql/gocql"
+	"github.com/scylladb/gocqlx"
+	"github.com/scylladb/gocqlx/qb"
 	"log"
 	"sort"
 	"strconv"
@@ -110,29 +112,10 @@ func (cs *CassandraStorage) GetActions(args storage.GetActionArgs) (storage.GetA
 	return result, nil
 }
 
-func (cs *CassandraStorage) GetTransaction(args storage.GetTransactionArgs) (storage.GetTransactionResult, *error_result.ErrorResult) {
+func (cs *CassandraStorage) buildTxResponse (transaction TransactionRecord, transactionTrace TransactionTraceRecord, lastIrreversibleBlock uint64) (storage.GetTransactionResult, error) {
 	result := storage.GetTransactionResult{}
-	lib, err := cs.getLastIrreversibleBlock()
-	if err != nil {
-		log.Println(fmt.Sprintf("Error from GetTransaction(): %s. Continuing execution.", err.Error()))
-	}
-	result.LastIrreversibleBlock = lib
+	expectTxID := transaction.ID
 
-	if args.ID == "" {
-		return result, &error_result.ErrorResult{ Code:500, Message:"Invalid transaction ID: " + args.ID }
-	}
-
-	transaction, err := cs.getTransaction(args.ID)
-	if err != nil {
-		return result, &error_result.ErrorResult{Code:500, Message:err.Error()}
-	}
-	transactionTrace, err := cs.getTransactionTrace(args.ID)
-	if err != nil {
-		return result, &error_result.ErrorResult{Code:500, Message:err.Error()}
-	}
-	if transaction == nil || transactionTrace == nil {
-		return result, &error_result.ErrorResult{Code:404, Message:"Not found"}
-	}
 	for _, t := range transactionTrace.Doc.ActionTraces {
 		expandedTraces := t.ExpandTraces()
 		for _, expanded := range expandedTraces {
@@ -140,6 +123,7 @@ func (cs *CassandraStorage) GetTransaction(args storage.GetTransactionArgs) (sto
 		}
 	}
 	result.ID = transaction.ID
+	result.LastIrreversibleBlock = lastIrreversibleBlock
 	result.BlockNum = transactionTrace.Doc.BlockNum
 	result.BlockTime = transactionTrace.Doc.BlockTime
 	result.Trx = make(map[string]interface{})
@@ -161,7 +145,7 @@ func (cs *CassandraStorage) GetTransaction(args storage.GetTransactionArgs) (sto
 							receipt := result.Trx["receipt"]
 							trx := v[1]
 							if s, ok := trx.(string); ok {
-								if s != args.ID {
+								if s != expectTxID {
 									continue
 								}
 								if m, ok := receipt.(map[string]interface{}); ok {
@@ -198,6 +182,69 @@ func (cs *CassandraStorage) GetTransaction(args storage.GetTransactionArgs) (sto
 	}
 
 	return result, nil
+}
+
+func (cs *CassandraStorage) GetTransaction(args storage.GetTransactionArgs) (storage.GetTransactionResult, *error_result.ErrorResult) {
+	result := storage.GetTransactionResult{}
+	lib, err := cs.getLastIrreversibleBlock()
+	if err != nil {
+		log.Println(fmt.Sprintf("Error from GetTransaction(): %s. Continuing execution.", err.Error()))
+	}
+
+	if args.ID == "" {
+		return result, &error_result.ErrorResult{ Code:500, Message:"Invalid transaction ID: " + args.ID }
+	}
+
+	transaction, err := cs.getTransaction(args.ID)
+	if err != nil {
+		return result, &error_result.ErrorResult{Code:500, Message:err.Error()}
+	}
+
+	transactionTrace, err := cs.getTransactionTrace(args.ID)
+	if err != nil {
+		return result, &error_result.ErrorResult{Code:500, Message:err.Error()}
+	}
+
+	if transaction == nil || transactionTrace == nil {
+		return result, &error_result.ErrorResult{Code:404, Message:"Not found"}
+	}
+
+	result, err = cs.buildTxResponse(*transaction, *transactionTrace, lib)
+	if err != nil {
+		return result, &error_result.ErrorResult{Code:500, Message:err.Error()}
+	}
+
+	return result, nil
+}
+
+func (cs *CassandraStorage) GetTransactions(args storage.GetTransactionsArgs) ([]storage.GetTransactionResult, *error_result.ErrorResult) {
+	results := make([]storage.GetTransactionResult, 0)
+	lib, err := cs.getLastIrreversibleBlock()
+	if err != nil {
+		log.Println(fmt.Sprintf("Error from GetTransaction(): %s. Continuing execution.", err.Error()))
+	}
+
+	if len(args.IDs) == 0 {
+		return results, &error_result.ErrorResult{ Code:500, Message:"At least one tx id required"}
+	}
+
+	transactions, err := cs.getFullTransactions(args.IDs)
+	if err != nil {
+		return results, &error_result.ErrorResult{Code:500, Message:err.Error()}
+	}
+
+	for _, tx := range transactions {
+		transaction := tx.Tx
+		transactionTrace := tx.TxTrace
+
+		result, err := cs.buildTxResponse(transaction, transactionTrace, lib)
+		if err != nil {
+			return results, &error_result.ErrorResult{Code:500, Message:err.Error()}
+		}
+		results = append(results, result)
+	}
+
+	return results, nil
 }
 
 func (cs *CassandraStorage) GetKeyAccounts(args storage.GetKeyAccountsArgs) (storage.GetKeyAccountsResult, *error_result.ErrorResult) {
@@ -791,6 +838,44 @@ func (cs *CassandraStorage) getTransaction(id string) (*TransactionRecord, error
 	return &record, nil
 }
 
+func (cs *CassandraStorage) getTransactions(ids []string) ([]TransactionRecord, error)  {
+	txs := make([]TransactionRecord, 0)
+
+	q := qb.Select(TableTransaction).
+		Where(qb.In("id"))
+
+	stmt, names := q.ToCql()
+
+	bind := qb.M{
+		"id": ids,
+	}
+
+	iter := gocqlx.Query(cs.Session.Query(stmt), names).BindMap(bind).Iter()
+	record := TransactionRecord{}
+	var doc string
+	for iter.Scan(&record.ID, &doc) {
+		err := json.Unmarshal([]byte(doc), &record.Doc)
+		if err != nil {
+			err = fmt.Errorf("failed to unmarshal transaction %s: %s", record.ID, err.Error())
+			log.Println(fmt.Sprintf("Error from getTransactions: %s", err.Error()))
+			return nil, err
+		}
+		txs = append(txs, record)
+
+		// clear variables, its important!!!
+		record = TransactionRecord{}
+		doc = ""
+	}
+
+	if err := iter.Close(); err != nil {
+		err = fmt.Errorf(TemplateErrorCassandraQueryFailed, err.Error(), stmt)
+		log.Println("Error from getTransactions: " + err.Error())
+		return txs, err
+	}
+
+	return txs, nil
+}
+
 func (cs *CassandraStorage) getTransactionTrace(id string) (*TransactionTraceRecord, error)  {
 	query := fmt.Sprintf("SELECT * FROM %s WHERE id='%s'", TableTransactionTrace, id)
 
@@ -812,6 +897,78 @@ func (cs *CassandraStorage) getTransactionTrace(id string) (*TransactionTraceRec
 		return nil, err
 	}
 	return &record, nil
+}
+
+func (cs *CassandraStorage) getTransactionsTraces(ids []string) ([]TransactionTraceRecord, error)  {
+	txs := make([]TransactionTraceRecord, 0)
+
+	q := qb.Select(TableTransactionTrace).
+		Where(qb.In("id"))
+
+	stmt, names := q.ToCql()
+
+	bind := qb.M{
+		"id": ids,
+	}
+
+	iter := gocqlx.Query(cs.Session.Query(stmt), names).BindMap(bind).Iter()
+	record := TransactionTraceRecord{}
+	var doc string
+	for iter.Scan(&record.ID, &record.BlockDate, &record.BlockNum, &doc) {
+		err := json.Unmarshal([]byte(doc), &record.Doc)
+		if err != nil {
+			err = fmt.Errorf("failed to unmarshal transactions traces %s: %s", record.ID, err.Error())
+			log.Println(fmt.Sprintf("Error from getTransactionsTrace: %s", err.Error()))
+			return nil, err
+		}
+
+		txs = append(txs, record)
+
+		// clear variables, its important!!!
+		record = TransactionTraceRecord{}
+		doc = ""
+	}
+
+	if err := iter.Close(); err != nil {
+		err = fmt.Errorf(TemplateErrorCassandraQueryFailed, err.Error(), stmt)
+		log.Println("Error from getTransactionsTrace: " + err.Error())
+		return txs, err
+	}
+
+	return txs, nil
+}
+
+func (cs *CassandraStorage) getFullTransactions(ids []string) ([]FullTransactionRecord, error)  {
+	fullTXs := make([]FullTransactionRecord, 0)
+
+	txs, err := cs.getTransactions(ids)
+	if err != nil {
+		return nil, err
+	}
+
+	traces, err := cs.getTransactionsTraces(ids)
+	if err != nil {
+		return nil, err
+	}
+
+	// slice to map
+	m := make(map[string]TransactionTraceRecord, 0)
+	for _, t := range traces {
+		m[t.ID] = t
+	}
+
+	for _, tx := range txs {
+		if trace, ok := m[tx.ID]; ok {
+			fullTXs = append(fullTXs, FullTransactionRecord{
+				Tx:      tx,
+				TxTrace: trace,
+			})
+		} else {
+			return nil, fmt.Errorf("can not found transaction trace info for tx: %s", tx.ID)
+		}
+	}
+
+	return fullTXs, nil
 }
 
 func (cs *CassandraStorage) countAccountActionTraces(account string, shards []Timestamp, blockTimeRange Range, top uint64) (uint64, error) {

@@ -41,6 +41,7 @@ func NewRouter(hs storage.IHistoryStorage) *Router {
 	handler := http.NewServeMux()
 	handler.HandleFunc(ApiPath + "get_actions", onlyGetOrPost(router.handleGetActions()))
 	handler.HandleFunc(ApiPath + "get_transaction", onlyGetOrPost(router.handleGetTransaction()))
+	handler.HandleFunc(ApiPath + "get_transactions", onlyGetOrPost(router.handleGetTransactions()))
 	handler.HandleFunc(ApiPath + "get_key_accounts", onlyGetOrPost(router.handleGetKeyAccounts()))
 	handler.HandleFunc(ApiPath + "get_controlled_accounts", onlyGetOrPost(router.handleGetControlledAccounts()))
 	handler.HandleFunc(ApiPath + "find_actions", onlyGetOrPost(router.handleFindActions()))

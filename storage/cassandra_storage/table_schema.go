@@ -54,6 +54,10 @@ type DateActionTraceRecord struct {
 	Parent    *uint64
 }
 
+type FullTransactionRecord struct {
+	Tx TransactionRecord
+	TxTrace TransactionTraceRecord
+}
 
 type TransactionRecord struct {
 	ID  string
