@@ -9,6 +9,7 @@ import (
 	"net/http"
 )
 
+const MaxTxHashesPerRequest = 500
 
 func (r *Router) handleGetTransactions() http.HandlerFunc {
 	return func(writer http.ResponseWriter, request *http.Request) {
@@ -29,6 +30,11 @@ func (r *Router) handleGetTransactions() http.HandlerFunc {
 					return
 				}
 			}
+		}
+
+		if len(args.IDs) > MaxTxHashesPerRequest {
+			writeErrorResponse(writer, http.StatusBadRequest, fmt.Sprintf("max limit of txs per request: %d", MaxTxHashesPerRequest))
+			return
 		}
 
 		response, errorResult := r.historyStorage.GetTransactions(args)
