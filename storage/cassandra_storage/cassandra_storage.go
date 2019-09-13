@@ -70,7 +70,7 @@ func NewCassandraStorage(address string, keyspace string) (*CassandraStorage, er
 	cluster.Keyspace       = keyspace
 	cluster.ConnectTimeout = 10 * time.Second
 	cluster.Timeout        = 30 * time.Second
-	cluster.NumConns = 1000
+	cluster.NumConns = 100
 	s, err := cluster.CreateSession()
 	if err != nil {
 		return nil, err
