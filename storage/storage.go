@@ -80,6 +80,10 @@ type GetTransactionResult struct {
 	LastIrreversibleBlock                 uint64 `json:"last_irreversible_block"`
 }
 
+//get_transactions
+type GetTransactionsArgs struct {
+	IDs []string `json:"ids"`
+}
 //get_key_accounts
 type GetKeyAccountsArgs struct {
 	PublicKey string `json:"public_key"`
@@ -146,6 +150,7 @@ type FindActionsResult struct {
 type IHistoryStorage interface {
 	GetActions(GetActionArgs)                        (GetActionsResult,            *error_result.ErrorResult)
 	GetTransaction(GetTransactionArgs)               (GetTransactionResult,        *error_result.ErrorResult)
+	GetTransactions(GetTransactionsArgs)             ([]GetTransactionResult,      *error_result.ErrorResult)
 	GetKeyAccounts(GetKeyAccountsArgs)               (GetKeyAccountsResult,        *error_result.ErrorResult)
 	GetControlledAccounts(GetControlledAccountsArgs) (GetControlledAccountsResult, *error_result.ErrorResult)
 	FindActions(FindActionsArgs)                     (FindActionsResult,           *error_result.ErrorResult)
