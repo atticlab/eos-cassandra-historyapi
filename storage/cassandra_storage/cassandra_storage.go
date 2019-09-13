@@ -68,8 +68,9 @@ type CassandraStorage struct {
 func NewCassandraStorage(address string, keyspace string) (*CassandraStorage, error) {
 	cluster := gocql.NewCluster(address)
 	cluster.Keyspace       = keyspace
-	cluster.ConnectTimeout = 5 * time.Second
-	cluster.Timeout        = 10 * time.Second
+	cluster.ConnectTimeout = 10 * time.Second
+	cluster.Timeout        = 30 * time.Second
+	cluster.NumConns = 1000
 	s, err := cluster.CreateSession()
 	if err != nil {
 		return nil, err
