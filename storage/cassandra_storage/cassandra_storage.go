@@ -964,7 +964,8 @@ func (cs *CassandraStorage) getFullTransactions(ids []string) ([]FullTransaction
 				TxTrace: trace,
 			})
 		} else {
-			return nil, fmt.Errorf("can not found transaction trace info for tx: %s", tx.ID)
+			log.Println(fmt.Sprintf("can not found transaction trace info for tx: %s", tx.ID))
+			continue
 		}
 	}
 
